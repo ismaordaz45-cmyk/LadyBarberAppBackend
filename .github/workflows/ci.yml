@@ -2,12 +2,58 @@ name: CI Backend
 
 on:
   pull_request:
-    branches: [ develop ]
+    branches:
+      - develop
+      - main
+      - 'release/**'
   push:
-    branches: [ develop ]
+    branches:
+      - develop
+      - main
+      - 'release/**'
   workflow_dispatch:
 
 jobs:
+  validate-release-source:
+    name: Validación de Rama de Release hacia Main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validar origen de Pull Request
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          echo "Evaluando contexto del evento..."
+          echo "Evento: $EVENT_NAME"
+          echo "Rama base: $BASE_REF"
+          echo "Rama origen: $HEAD_REF"
+
+          # 1. Si no es un Pull Request hacia main, la validación de release no aplica
+          if [ "$EVENT_NAME" != "pull_request" ] || [ "$BASE_REF" != "main" ]; then
+            echo "La validación de origen para 'main' no aplica para el evento '$EVENT_NAME' con destino '$BASE_REF'."
+            echo "Comprobación completada exitosamente sin restricciones para este flujo."
+            exit 0
+          fi
+
+          echo "Detectado Pull Request con destino a 'main'. Ejecutando validación estricta de origen..."
+
+          # 2. Validar que proceda del mismo repositorio (no de un fork)
+          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "::error::Violación de seguridad: El Pull Request hacia 'main' no procede del repositorio oficial ($BASE_REPO)."
+            exit 1
+          fi
+
+          # 3. Validar que la rama cumpla estrictamente el patrón release/vX.Y.Z
+          if [[ ! "$HEAD_REF" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Violación del flujo: Los Pull Requests dirigidos a 'main' deben provenir exclusivamente de ramas 'release/vX.Y.Z' (recibido: '$HEAD_REF'). PRs directos desde 'feature/*' o 'develop' están estrictamente prohibidos."
+            exit 1
+          fi
+
+          echo "Validación superada: La rama '$HEAD_REF' procede del repositorio oficial y cumple con la convención de Release oficial."
+
   test:
     name: Pruebas Unitarias y API
     runs-on: ubuntu-latest
