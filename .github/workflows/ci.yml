@@ -5,12 +5,12 @@ on:
     branches:
       - develop
       - main
-      - 'release/**'
+      - release
   push:
     branches:
       - develop
       - main
-      - 'release/**'
+      - release
   workflow_dispatch:
 
 jobs:
@@ -46,13 +46,13 @@ jobs:
             exit 1
           fi
 
-          # 3. Validar que la rama cumpla estrictamente el patrón release/vX.Y.Z
-          if [[ ! "$HEAD_REF" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Violación del flujo: Los Pull Requests dirigidos a 'main' deben provenir exclusivamente de ramas 'release/vX.Y.Z' (recibido: '$HEAD_REF'). PRs directos desde 'feature/*' o 'develop' están estrictamente prohibidos."
+          # 3. Validar que la rama origen sea exclusivamente la rama oficial release
+          if [ "$HEAD_REF" != "release" ]; then
+            echo "::error::Violación del flujo: Los Pull Requests dirigidos a 'main' deben provenir exclusivamente de la rama oficial 'release' (recibido: '$HEAD_REF'). PRs directos desde 'feature/*', 'develop' o ramas de versión no autorizadas están estrictamente prohibidos."
             exit 1
           fi
 
-          echo "Validación superada: La rama '$HEAD_REF' procede del repositorio oficial y cumple con la convención de Release oficial."
+          echo "Validación superada: La rama '$HEAD_REF' procede del repositorio oficial y corresponde a la rama oficial de Release."
 
   test:
     name: Pruebas Unitarias y API
