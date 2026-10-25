@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test"
+    "test": "node --test test/auth.test.js",
+    "test:integration": "node --test --test-concurrency=1 test/integration/auth.mysql.test.js",
+    "test:all": "npm test && npm run test:integration"
   },
   "keywords": [
     "express",

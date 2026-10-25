@@ -57,6 +57,31 @@ jobs:
   test:
     name: Pruebas Unitarias y API
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      INTEGRATION_DB_CONFIRMATION: lady_barber_test_ephemeral_only
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: lady_barber_ci
+      DB_PASSWORD: ci_only_not_a_real_password
+      DB_NAME: lady_barber_test
+      JWT_SECRET: ci_only_jwt_secret_not_for_external_use
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: lady_barber_test
+          MYSQL_USER: lady_barber_ci
+          MYSQL_PASSWORD: ci_only_not_a_real_password
+          MYSQL_ROOT_PASSWORD: ci_only_root_password_discarded_after_job
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout del repositorio
@@ -73,3 +98,6 @@ jobs:
 
       - name: Ejecutar pruebas unitarias
         run: npm test
+
+      - name: Ejecutar prueba de integración MySQL
+        run: npm run test:integration
