@@ -1,14 +1,15 @@
 import dotenv from 'dotenv';
 import app from './src/app.js';
-import { testConnection } from './src/config/database.js';
+import { closePool, testConnection } from './src/config/database.js';
+import { createServerConfig } from './src/config/server.js';
 
 // Cargar variables de entorno desde .env
 dotenv.config();
 
-const PORT = process.env.PORT || 3000;
+const { host: HOST, port: PORT } = createServerConfig();
 
 // Iniciar servidor HTTP
-const server = app.listen(PORT, async () => {
+const server = app.listen(PORT, HOST, async () => {
   console.log(`===============================================`);
   console.log(` Servidor Lady Barber iniciado`);
   console.log(` URL: http://localhost:${PORT}`);
@@ -26,10 +27,30 @@ const server = app.listen(PORT, async () => {
 });
 
 // Manejo de señales de cierre seguro
-process.on('SIGTERM', () => {
-  console.log('Señal SIGTERM recibida. Cerrando servidor...');
-  server.close(() => {
+let shuttingDown = false;
+
+const shutdown = (signal) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`Señal ${signal} recibida. Cerrando servidor...`);
+
+  server.close(async (serverError) => {
+    try {
+      await closePool();
+      console.log('Pool MySQL cerrado correctamente.');
+    } catch (databaseError) {
+      console.error('Error al cerrar el pool MySQL:', databaseError.message);
+      process.exitCode = 1;
+    }
+
+    if (serverError) {
+      console.error('Error al cerrar el servidor HTTP:', serverError.message);
+      process.exitCode = 1;
+    }
+
     console.log('Servidor finalizado.');
-    process.exit(0);
   });
-});
+};
+
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown('SIGINT'));
