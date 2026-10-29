@@ -1,5 +1,6 @@
 import catalogoRepository from '../repositories/catalogoRepository.js';
 
+
 class CatalogoController {
   async getServicios(req, res, next) {
     try {
