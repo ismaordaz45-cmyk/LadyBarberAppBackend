@@ -52,6 +52,15 @@ describe('Configuración TLS de MySQL', () => {
     });
   });
 
+  it('usa las autoridades públicas de Node cuando no se configura una CA personalizada', () => {
+    const config = createDatabaseConfig({ DB_SSL: 'true' });
+
+    assert.deepEqual(config.ssl, {
+      minVersion: 'TLSv1.2',
+      rejectUnauthorized: true,
+    });
+  });
+
   it('admite la CA codificada en Base64 para gestores de secretos', () => {
     const encodedCa = Buffer.from(TEST_CA, 'utf8').toString('base64');
     const config = createDatabaseConfig({ DB_SSL: 'true', DB_SSL_CA_BASE64: encodedCa });
@@ -60,8 +69,7 @@ describe('Configuración TLS de MySQL', () => {
     assert.equal(config.ssl.rejectUnauthorized, true);
   });
 
-  it('impide habilitar TLS sin CA o con opciones ambiguas', () => {
-    assert.throws(() => createDatabaseConfig({ DB_SSL: 'true' }), /requiere/);
+  it('impide configurar opciones de CA ambiguas o inválidas', () => {
     assert.throws(
       () => createDatabaseConfig({ DB_SSL: 'true', DB_SSL_CA: TEST_CA, DB_SSL_CA_BASE64: 'YQ==' }),
       /solo una/
