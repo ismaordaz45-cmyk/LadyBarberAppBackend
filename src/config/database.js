@@ -30,16 +30,18 @@ const readCertificateAuthority = (env) => {
     throw new Error('Configura solo una de DB_SSL_CA o DB_SSL_CA_BASE64');
   }
 
+  // Los proveedores con certificados emitidos por una CA pública pueden
+  // verificarse con el almacén de confianza de Node.js.
+  if (!rawCertificate && !encodedCertificate) {
+    return undefined;
+  }
+
   let certificate = rawCertificate;
   if (encodedCertificate) {
     if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encodedCertificate) || encodedCertificate.length % 4 !== 0) {
       throw new Error('DB_SSL_CA_BASE64 no contiene Base64 válido');
     }
     certificate = Buffer.from(encodedCertificate, 'base64').toString('utf8');
-  }
-
-  if (!certificate) {
-    throw new Error('DB_SSL requiere DB_SSL_CA o DB_SSL_CA_BASE64');
   }
 
   certificate = normalizeCertificate(certificate);
@@ -81,10 +83,13 @@ export const createDatabaseConfig = (env = process.env) => {
 
   if (tlsEnabled) {
     config.ssl = {
-      ca: readCertificateAuthority(env),
       minVersion: 'TLSv1.2',
       rejectUnauthorized: true,
     };
+    const certificateAuthority = readCertificateAuthority(env);
+    if (certificateAuthority) {
+      config.ssl.ca = certificateAuthority;
+    }
   }
 
   return config;
