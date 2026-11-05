@@ -33,7 +33,7 @@ class CatalogoController {
     try {
       const { id } = req.params;
       const servicioId = Number(id);
-      if (isNaN(servicioId)) {
+      if (!Number.isInteger(servicioId) || servicioId < 1) {
         return res.status(400).json({ error: "servicioId inválido" });
       }
       const empleadas = await catalogoRepository.getEmpleadasPorServicio(servicioId);
