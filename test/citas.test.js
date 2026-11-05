@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { CitasService } from '../src/services/citasService.js';
 import { getMinimumBookingDate } from '../src/services/citasDomain.js';
 
-const fixedNow = new Date(2026, 10, 2, 9, 0, 0);
+const fixedNow = new Date('2026-11-02T15:00:00.000Z');
 
 const createRepository = (overrides = {}) => ({
   reservarCitaAtomica: async (request) => ({ citaId: 'cita-test', request }),
@@ -15,8 +15,14 @@ const createRepository = (overrides = {}) => ({
 
 describe('Reglas de negocio de citas', () => {
   it('calcula dos días hábiles de anticipación', () => {
-    assert.equal(getMinimumBookingDate(new Date(2026, 10, 2)), '2026-11-04');
-    assert.equal(getMinimumBookingDate(new Date(2026, 10, 6)), '2026-11-10');
+    assert.equal(
+      getMinimumBookingDate(new Date('2026-11-02T15:00:00.000Z'), 'America/Mexico_City'),
+      '2026-11-04'
+    );
+    assert.equal(
+      getMinimumBookingDate(new Date('2026-11-06T15:00:00.000Z'), 'America/Mexico_City'),
+      '2026-11-10'
+    );
     assert.equal(
       getMinimumBookingDate(new Date('2026-11-03T03:00:00Z'), 'America/Mexico_City'),
       '2026-11-04'
