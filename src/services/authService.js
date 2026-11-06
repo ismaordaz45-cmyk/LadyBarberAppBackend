@@ -236,7 +236,12 @@ class AuthService {
     const passwordHash = await bcrypt.hash(String(newPassword), 10);
 
     // Actualizar en base de datos
-    await usuarioRepository.updatePassword(decoded.id, passwordHash);
+    const updated = await usuarioRepository.updatePassword(decoded.id, passwordHash);
+    if (!updated) {
+      const error = new Error('El enlace de recuperación es inválido o la cuenta ya no está disponible');
+      error.statusCode = 400;
+      throw error;
+    }
 
     return {
       ok: true,

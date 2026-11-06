@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import citasController from '../controllers/citasController.js';
-import { verificarToken, verificarRol } from '../middlewares/authMiddleware.js';
+import { verificarCuentaActiva, verificarToken, verificarRol } from '../middlewares/authMiddleware.js';
 
 const router = Router();
 
 // Todas las rutas de citas requieren autenticación (y rol CLIENTE en este caso)
 router.use(verificarToken);
+router.use(verificarCuentaActiva);
 router.use(verificarRol('CLIENTE'));
 
 router.get('/mis-citas', (req, res, next) => citasController.getMisCitas(req, res, next));
