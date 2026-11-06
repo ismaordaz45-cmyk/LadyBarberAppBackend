@@ -113,6 +113,7 @@ class UsuarioRepository {
       UPDATE usuario
       SET password = ?
       WHERE id = ?
+        AND estaActivo = 1
     `;
 
     const [result] = await pool.query(query, [passwordHash, id]);

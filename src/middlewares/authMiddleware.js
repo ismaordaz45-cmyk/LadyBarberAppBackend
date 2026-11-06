@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import usuarioRepository from '../repositories/usuarioRepository.js';
 
 export const verificarToken = (req, res, next) => {
   try {
@@ -33,3 +34,20 @@ export const verificarRol = (rolEsperado) => {
     next();
   };
 };
+
+export const crearVerificadorCuentaActiva = (repository = usuarioRepository) => {
+  return async (req, res, next) => {
+    try {
+      const usuario = await repository.findById(req.user?.id);
+      if (!usuario || usuario.estaActivo !== 1) {
+        return res.status(401).json({ error: 'La cuenta ya no está disponible' });
+      }
+      req.user.rol = usuario.rol;
+      return next();
+    } catch (error) {
+      return next(error);
+    }
+  };
+};
+
+export const verificarCuentaActiva = crearVerificadorCuentaActiva();
