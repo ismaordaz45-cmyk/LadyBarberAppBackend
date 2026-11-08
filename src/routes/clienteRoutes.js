@@ -9,5 +9,6 @@ router.use(verificarCuentaActiva);
 router.use(verificarRol('CLIENTE'));
 
 router.get('/resumen', (req, res, next) => clienteController.getResumen(req, res, next));
+router.put('/perfil', (req, res, next) => clienteController.updatePerfil(req, res, next));
 
 export default router;

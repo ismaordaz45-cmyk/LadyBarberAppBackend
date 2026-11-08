@@ -62,6 +62,41 @@ class ClienteRepository {
     return rows.length > 0 ? rows[0] : null;
   }
 
+  async actualizarPerfilPorUsuarioId(usuarioId, {
+    nombre,
+    apellidoPaterno,
+    apellidoMaterno,
+    telefono,
+  }) {
+    const [result] = await pool.query(
+      `UPDATE usuario u
+       INNER JOIN cliente c ON c.usuarioId = u.id
+          SET u.nombre = ?,
+              u.apellidoPaterno = ?,
+              u.apellidoMaterno = ?,
+              u.telefono = ?
+        WHERE u.id = ?
+          AND u.rol = 'CLIENTE'
+          AND u.estaActivo = 1`,
+      [nombre, apellidoPaterno, apellidoMaterno, telefono, usuarioId]
+    );
+
+    if (result.affectedRows > 0) return true;
+
+    // MySQL puede reportar cero filas afectadas cuando los valores no cambian.
+    const [rows] = await pool.query(
+      `SELECT u.id
+         FROM usuario u
+         INNER JOIN cliente c ON c.usuarioId = u.id
+        WHERE u.id = ?
+          AND u.rol = 'CLIENTE'
+          AND u.estaActivo = 1
+        LIMIT 1`,
+      [usuarioId]
+    );
+    return rows.length > 0;
+  }
+
   async getEstadisticasCitas(clienteId) {
     const query = `
       SELECT
