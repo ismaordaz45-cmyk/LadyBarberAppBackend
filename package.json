@@ -1,0 +1,33 @@
+{
+  "name": "lady-barber-backend",
+  "version": "1.0.0",
+  "description": "Backend REST API para Lady Barber Itzá D'M",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/auth.test.js test/config.test.js test/citas.test.js test/cuenta.test.js test/perfil.test.js",
+    "test:integration": "node --test --test-concurrency=1 test/integration/auth.mysql.test.js test/integration/citas.mysql.test.js test/integration/cuenta.mysql.test.js test/integration/perfil.mysql.test.js",
+    "test:all": "npm test && npm run test:integration"
+  },
+  "keywords": [
+    "express",
+    "mysql",
+    "rest-api",
+    "lady-barber"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.24.5"
+  },
+  "devDependencies": {
+    "supertest": "^7.3.1"
+  }
+}
