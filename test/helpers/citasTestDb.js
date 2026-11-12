@@ -5,7 +5,7 @@ import { getSafeTestDatabaseConfig } from './mysqlTestDb.js';
 
 const schemaUrl = new URL('../fixtures/citas.mysql.sql', import.meta.url);
 const dropOrder = [
-  'citaservicio', 'cita', 'empleada_servicio', 'horario_negocio',
+  'citaservicio', 'pago_mercado_pago', 'cita', 'empleada_servicio', 'horario_negocio',
   'insumo', 'servicio', 'empleada', 'cliente', 'usuario',
 ];
 
