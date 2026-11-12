@@ -3,6 +3,3 @@ node_modules/
 logs/
 *.log
 .DS_Store
-
-# Integracion de pagos en desarrollo
-/src/routes/mercadoPagoRoutes.js
