@@ -4,6 +4,7 @@ import mysql from 'mysql2/promise';
 import { getSafeTestDatabaseConfig } from './mysqlTestDb.js';
 
 const schemaUrl = new URL('../fixtures/citas.mysql.sql', import.meta.url);
+const paymentMigrationUrl = new URL('../../database/migrations/002_citas_mercado_pago.sql', import.meta.url);
 const dropOrder = [
   'citaservicio', 'pago_mercado_pago', 'cita', 'empleada_servicio', 'horario_negocio',
   'insumo', 'servicio', 'empleada', 'cliente', 'usuario',
@@ -23,6 +24,7 @@ const withConnection = async (callback, options = {}) => {
 
 export const resetCitasTestDatabase = async () => {
   const schema = await readFile(fileURLToPath(schemaUrl), 'utf8');
+  const paymentMigration = await readFile(paymentMigrationUrl, 'utf8');
   await withConnection(async (connection) => {
     await connection.query('SET FOREIGN_KEY_CHECKS = 0');
     try {
@@ -30,10 +32,16 @@ export const resetCitasTestDatabase = async () => {
         await connection.query(`DROP TABLE IF EXISTS \`${table}\``);
       }
       await connection.query(schema);
+      await connection.query(paymentMigration);
     } finally {
       await connection.query('SET FOREIGN_KEY_CHECKS = 1');
     }
   }, { multipleStatements: true });
+};
+
+export const applyPaymentTestMigration = async () => {
+  const migration = await readFile(paymentMigrationUrl, 'utf8');
+  await withConnection((connection) => connection.query(migration), { multipleStatements: true });
 };
 
 export const dropCitasTestDatabaseObjects = async () => {
