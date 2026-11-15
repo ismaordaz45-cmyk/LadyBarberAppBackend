@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import citasController from '../controllers/citasController.js';
+import citasPagoController from '../controllers/citasPagoController.js';
 import { verificarCuentaActiva, verificarToken, verificarRol } from '../middlewares/authMiddleware.js';
 
 const router = Router();
@@ -15,5 +16,7 @@ router.delete('/:id', (req, res, next) => citasController.cancelarMiCita(req, re
 router.post('/reservar', (req, res, next) => citasController.reservarCita(req, res, next));
 router.post('/', (req, res, next) => citasController.reservarCita(req, res, next)); // alias web
 router.get('/ocupacion', (req, res, next) => citasController.getOcupacion(req, res, next));
+router.post('/:id/pago/preferencia', (req, res, next) => citasPagoController.crearPreferencia(req, res, next));
+router.get('/:id/pago/estado', (req, res, next) => citasPagoController.obtenerEstado(req, res, next));
 
 export default router;

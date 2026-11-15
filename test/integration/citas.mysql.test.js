@@ -4,8 +4,9 @@ import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import app from '../../src/app.js';
 import pool from '../../src/config/database.js';
+import { CitasPagoRepository } from '../../src/repositories/citasPagoRepository.js';
 import { getMinimumBookingDate } from '../../src/services/citasDomain.js';
-import { dropCitasTestDatabaseObjects, resetCitasTestDatabase } from '../helpers/citasTestDb.js';
+import { applyPaymentTestMigration, dropCitasTestDatabaseObjects, resetCitasTestDatabase } from '../helpers/citasTestDb.js';
 
 const targetDate = getMinimumBookingDate();
 let tokenCliente;
@@ -60,6 +61,74 @@ after(async () => {
 });
 
 describe('Integración real de catálogos y citas con MySQL', () => {
+  it('conserva pagos pendientes de la web y definiciones existentes al repetir la migración', async () => {
+    const [columns] = await pool.query('SHOW COLUMNS FROM pago_mercado_pago');
+    const column = (name) => columns.find((item) => item.Field === name);
+    assert.equal(column('id').Type, 'int');
+    assert.equal(column('citaId').Type, 'varchar(64)');
+    assert.equal(column('preferenciaId').Type, 'varchar(100)');
+    assert.equal(column('paymentId').Type, 'varchar(100)');
+    assert.equal(column('paymentId').Null, 'YES');
+    assert.equal(column('rawData').Type, 'longtext');
+    assert.equal(column('rawData').Null, 'YES');
+    assert.equal(column('moneda').Type, 'varchar(5)');
+    assert.equal(column('moneda').Default, 'MXN');
+    assert.equal(column('estado').Type, 'varchar(50)');
+    assert.equal(column('estado').Default, 'PENDIENTE');
+    assert.equal(column('estadoDetalle').Type, 'varchar(100)');
+    assert.equal(column('metodoPago').Type, 'varchar(50)');
+    assert.equal(column('tipoPago').Type, 'varchar(50)');
+    assert.equal(column('creadoEn').Null, 'YES');
+    assert.equal(column('actualizadoEn').Null, 'YES');
+    const [foreignKeys] = await pool.query(`
+      SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pago_mercado_pago'
+         AND REFERENCED_TABLE_NAME IS NOT NULL
+    `);
+    assert.equal(foreignKeys.length, 0);
+    const [appointmentColumns] = await pool.query('SHOW COLUMNS FROM cita');
+    for (const [name, type] of [
+      ['mp_preference_id', 'varchar(255)'],
+      ['mp_payment_id', 'varchar(255)'],
+      ['mp_status', 'varchar(50)'],
+    ]) {
+      const item = appointmentColumns.find((entry) => entry.Field === name);
+      assert.equal(item.Type, type);
+      assert.equal(item.Null, 'YES');
+    }
+
+    // La web puede tener más de un pago pendiente sin paymentId ni rawData.
+    await pool.query(`
+      INSERT INTO pago_mercado_pago (citaId, monto, creadoEn, actualizadoEn)
+      VALUES ('web-pendiente-1', 100, NULL, NULL),
+             ('web-pendiente-2', 100, NULL, NULL)
+    `);
+    // Las columnas ya existentes conservan su definición y sus datos.
+    await pool.query('ALTER TABLE cita MODIFY mp_preference_id VARCHAR(100) NULL');
+    const [before] = await pool.query('SHOW CREATE TABLE cita');
+    const [paymentSchemaBefore] = await pool.query('SHOW CREATE TABLE pago_mercado_pago');
+    await applyPaymentTestMigration();
+    await applyPaymentTestMigration();
+    const [after] = await pool.query('SHOW CREATE TABLE cita');
+    assert.deepEqual(after, before);
+    const [paymentSchemaAfter] = await pool.query('SHOW CREATE TABLE pago_mercado_pago');
+    assert.deepEqual(paymentSchemaAfter, paymentSchemaBefore);
+    const [pending] = await pool.query("SELECT * FROM pago_mercado_pago WHERE estado = 'PENDIENTE' ORDER BY id");
+    assert.equal(pending.length, 2);
+    for (const payment of pending) {
+      assert.equal(payment.moneda, 'MXN');
+      assert.equal(payment.paymentId, null);
+      assert.equal(payment.rawData, null);
+      assert.equal(payment.creadoEn, null);
+      assert.equal(payment.actualizadoEn, null);
+    }
+    await pool.query("UPDATE pago_mercado_pago SET paymentId = 'web-payment-unique' WHERE citaId = 'web-pendiente-1'");
+    await assert.rejects(
+      () => pool.query("UPDATE pago_mercado_pago SET paymentId = 'web-payment-unique' WHERE citaId = 'web-pendiente-2'"),
+      (error) => error.code === 'ER_DUP_ENTRY'
+    );
+  });
+
   it('expone catálogos activos con los contratos esperados', async () => {
     const servicios = await request(app).get('/api/servicios');
     assert.equal(servicios.status, 200);
@@ -165,5 +234,107 @@ describe('Integración real de catálogos y citas con MySQL', () => {
 
     const [otherAppointment] = await pool.query('SELECT estado FROM cita WHERE id = ?', [otherClientId]);
     assert.equal(otherAppointment[0].estado, 'CONFIRMADA');
+  });
+
+  it('persiste pendientes y rechazos sin confirmar, y no degrada un aprobado por un webhook tardío', async () => {
+    const citaId = '00000000-0000-4000-8000-000000000022';
+    await pool.query(
+      `INSERT INTO cita
+       (id, clienteId, empleadaId, fecha, horaInicio, horaFin, estado, precioFinal)
+       VALUES (?, 1, 1, ?, ?, ?, 'APARTADA', 200)`,
+      [citaId, `${targetDate} 00:00:00`, `${targetDate} 15:00:00`, `${targetDate} 15:30:00`]
+    );
+    const repository = new CitasPagoRepository(pool);
+    const payment = {
+      citaId, preferenceId: 'pref-statuses', id: 'payment-statuses', amount: 100,
+      currency: 'MXN', statusDetail: null, paymentMethod: null, paymentType: null,
+      approvedAt: null,
+    };
+    const readState = async () => {
+      const [rows] = await pool.query(
+        `SELECT c.estado, c.mp_status, p.estado AS paymentStatus, p.rawData
+           FROM cita c JOIN pago_mercado_pago p ON p.citaId = c.id WHERE c.id = ?`,
+        [citaId]
+      );
+      return rows;
+    };
+    // Un monto incorrecto se rechaza antes de escribir evidencia o confirmar.
+    await assert.rejects(
+      () => repository.applyVerifiedPayment({ ...payment, amount: 1, status: 'approved', rawData: {} }),
+      (error) => error.statusCode === 409
+    );
+    assert.deepEqual(await readState(), []);
+    for (const status of ['pending', 'rejected']) {
+      await repository.applyVerifiedPayment({ ...payment, status, rawData: { status } });
+      const [row] = await readState();
+      assert.equal(row.estado, 'APARTADA');
+      assert.equal(row.mp_status, status);
+      assert.equal(row.paymentStatus, status);
+    }
+    await repository.applyVerifiedPayment({ ...payment, status: 'approved', rawData: { status: 'approved' } });
+    await repository.applyVerifiedPayment({ ...payment, status: 'pending', rawData: { status: 'pending' } });
+    const rows = await readState();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].estado, 'CONFIRMADA');
+    assert.equal(rows[0].mp_status, 'approved');
+    assert.equal(rows[0].paymentStatus, 'approved');
+    assert.equal(JSON.parse(rows[0].rawData).status, 'approved');
+  });
+
+  it('persiste un pago aprobado, confirma la cita y mantiene idempotencia', async () => {
+    const paidCitaId = '00000000-0000-4000-8000-000000000020';
+    const secondCitaId = '00000000-0000-4000-8000-000000000021';
+    await pool.query(
+      `INSERT INTO cita
+       (id, clienteId, empleadaId, fecha, horaInicio, horaFin, estado, precioFinal, creadoEn)
+       VALUES
+         (?, 1, 1, ?, ?, ?, 'APARTADA', 200, NOW()),
+         (?, 2, 1, ?, ?, ?, 'APARTADA', 200, NOW())`,
+      [
+        paidCitaId, `${targetDate} 00:00:00`, `${targetDate} 12:00:00`, `${targetDate} 12:30:00`,
+        secondCitaId, `${targetDate} 00:00:00`, `${targetDate} 13:00:00`, `${targetDate} 13:30:00`,
+      ]
+    );
+
+    const repository = new CitasPagoRepository(pool);
+    const payment = {
+      citaId: paidCitaId,
+      preferenceId: 'pref-integration',
+      id: 'payment-integration-1',
+      amount: 100,
+      currency: 'MXN',
+      status: 'approved',
+      statusDetail: 'accredited',
+      paymentMethod: 'visa',
+      paymentType: 'credit_card',
+      approvedAt: new Date('2026-11-11T12:00:00.000Z'),
+      rawData: { id: 'payment-integration-1', status: 'approved' },
+    };
+
+    assert.deepEqual(await repository.applyVerifiedPayment(payment), { confirmed: true, status: 'approved' });
+    assert.deepEqual(await repository.applyVerifiedPayment(payment), { confirmed: true, status: 'approved' });
+
+    const [appointments] = await pool.query(
+      'SELECT estado, mp_payment_id AS paymentId, mp_status AS paymentStatus FROM cita WHERE id = ?',
+      [paidCitaId]
+    );
+    assert.equal(appointments[0].estado, 'CONFIRMADA');
+    assert.equal(appointments[0].paymentId, 'payment-integration-1');
+    assert.equal(appointments[0].paymentStatus, 'approved');
+
+    const [payments] = await pool.query(
+      'SELECT citaId, paymentId, monto, moneda, estado FROM pago_mercado_pago WHERE paymentId = ?',
+      ['payment-integration-1']
+    );
+    assert.equal(payments.length, 1);
+    assert.equal(payments[0].citaId, paidCitaId);
+    assert.equal(Number(payments[0].monto), 100);
+    assert.equal(payments[0].moneda, 'MXN');
+    assert.equal(payments[0].estado, 'approved');
+
+    await assert.rejects(
+      () => repository.applyVerifiedPayment({ ...payment, citaId: secondCitaId }),
+      (error) => error.statusCode === 409
+    );
   });
 });

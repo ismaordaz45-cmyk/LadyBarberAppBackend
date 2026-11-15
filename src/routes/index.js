@@ -2,6 +2,7 @@ import { Router } from 'express';
 import authRoutes from './authRoutes.js';
 import authController from '../controllers/authController.js';
 import catalogoController from '../controllers/catalogoController.js';
+import mercadoPagoRoutes from './mercadoPagoRoutes.js';
 
 const router = Router();
 
@@ -32,6 +33,9 @@ router.post('/login/reset-password', (req, res, next) => authController.resetPas
 // Catálogos públicos (Servicios e Insumos)
 router.get('/servicios', (req, res, next) => catalogoController.getServicios(req, res, next));
 router.get('/insumos', (req, res, next) => catalogoController.getInsumos(req, res, next));
+
+// Webhook y retornos públicos de Mercado Pago; el webhook valida firma HMAC.
+router.use('/pagos/mercadopago', mercadoPagoRoutes);
 
 import horarioNegocioRoutes from './horarioNegocioRoutes.js';
 router.use('/horario-negocio', horarioNegocioRoutes);
