@@ -7,12 +7,14 @@ export class CitasService {
     this.now = now;
   }
 
-  async obtenerCitasCliente(clienteId) {
+  async obtenerCitasCliente(clienteId, offset = 0) {
     const normalizedId = Number(clienteId);
     if (!Number.isInteger(normalizedId) || normalizedId < 1) {
       throw createCitasError(400, 'Falta el ID del cliente');
     }
-    return this.repository.getCitasByCliente(normalizedId);
+    const pageOffset = Number(offset);
+    if (!Number.isSafeInteger(pageOffset) || pageOffset < 0) throw createCitasError(400, 'Paginación inválida');
+    return this.repository.getCitasByCliente(normalizedId, pageOffset);
   }
 
   async getOcupacion(fecha, empleadaId) {
@@ -22,6 +24,29 @@ export class CitasService {
       throw createCitasError(400, 'empleadaId inválido');
     }
     return this.repository.getOcupacion(String(fecha).trim(), normalizedEmployeeId);
+  }
+
+  async obtenerDetalleCliente(citaId, clienteId) {
+    const id = String(citaId ?? '').trim();
+    const clientId = Number(clienteId);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+      || !Number.isInteger(clientId) || clientId < 1) {
+      throw createCitasError(400, 'Identificador de cita o cliente inválido');
+    }
+    const cita = await this.repository.getDetalleByCliente(id, clientId);
+    if (!cita) throw createCitasError(404, 'Cita no encontrada');
+    const total = Number(cita.precioFinal);
+    const monto = Number(cita.montoPagado);
+    const comprobanteDisponible = cita.paymentStatus === 'approved'
+      && cita.estadoPagoVerificado === 'approved' && cita.moneda === 'MXN'
+      && Boolean(cita.paymentId) && Number.isFinite(total) && total > 0
+      && Number.isFinite(monto) && monto > 0 && monto <= total;
+    const { estadoPagoVerificado, montoPagado, ...detalle } = cita;
+    return {
+      ...detalle, comprobanteDisponible,
+      anticipoPagado: comprobanteDisponible ? monto : null,
+      saldoPendiente: comprobanteDisponible ? Math.round((total - monto) * 100) / 100 : null,
+    };
   }
 
   async cancelarCitaCliente(citaId, clienteId) {
