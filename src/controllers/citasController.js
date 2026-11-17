@@ -24,7 +24,7 @@ class CitasController {
       if (!usuarioId) return res.status(401).json({ error: "No autorizado" });
 
       const clienteId = await this._getClienteIdPorUsuario(usuarioId);
-      const citas = await citasService.obtenerCitasCliente(clienteId);
+      const citas = await citasService.obtenerCitasCliente(clienteId, req.query.offset ?? 0);
       
       return res.json(citas);
     } catch (error) {
@@ -37,6 +37,15 @@ class CitasController {
       const { fecha, empleadaId } = req.query;
       const citas = await citasService.getOcupacion(fecha, empleadaId);
       return res.json(citas);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getDetalle(req, res, next) {
+    try {
+      const clienteId = await this._getClienteIdPorUsuario(req.user.id);
+      return res.json(await citasService.obtenerDetalleCliente(req.params.id, clienteId));
     } catch (error) {
       next(error);
     }

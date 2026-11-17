@@ -332,6 +332,23 @@ describe('Integración real de catálogos y citas con MySQL', () => {
     assert.equal(payments[0].moneda, 'MXN');
     assert.equal(payments[0].estado, 'approved');
 
+    await pool.query('INSERT INTO citaservicio (citaId, servicioId, precio, duracion) VALUES (?, 1, 200, 30)', [paidCitaId]);
+    const detalle = await request(app).get(`/api/citas/${paidCitaId}`).set('Authorization', `Bearer ${tokenCliente}`);
+    assert.equal(detalle.status, 200);
+    assert.equal(detalle.body.clienteNombre, 'Cliente CI');
+    assert.equal(detalle.body.empleadaNombre, 'Especialista CI');
+    assert.equal(detalle.body.comprobanteDisponible, true);
+    assert.equal(detalle.body.anticipoPagado, 100);
+    assert.equal(detalle.body.saldoPendiente, 100);
+    assert.equal(Number(detalle.body.servicios[0].precio), 200);
+    assert.equal(detalle.body.servicios[0].duracionMinutos, 30);
+    const ajena = await request(app).get(`/api/citas/${secondCitaId}`).set('Authorization', `Bearer ${tokenCliente}`);
+    assert.equal(ajena.status, 404);
+    const page = await request(app).get('/api/citas/mis-citas?offset=1').set('Authorization', `Bearer ${tokenCliente}`);
+    assert.equal(page.status, 200);
+    const firstPage = await request(app).get('/api/citas/mis-citas').set('Authorization', `Bearer ${tokenCliente}`);
+    assert.deepEqual(page.body.map(c => c.id), firstPage.body.slice(1).map(c => c.id));
+
     await assert.rejects(
       () => repository.applyVerifiedPayment({ ...payment, citaId: secondCitaId }),
       (error) => error.statusCode === 409

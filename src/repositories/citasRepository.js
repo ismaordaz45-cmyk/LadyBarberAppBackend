@@ -13,7 +13,7 @@ export class CitasRepository {
     this.pool = databasePool;
   }
 
-  async getCitasByCliente(clienteId) {
+  async getCitasByCliente(clienteId, offset = 0) {
     const query = `
       SELECT
         c.id,
@@ -30,11 +30,40 @@ export class CitasRepository {
       LEFT JOIN servicio s ON s.id = cs.servicioId
       WHERE c.clienteId = ?
       GROUP BY c.id, c.fecha, c.horaInicio, c.horaFin, c.estado, c.precioFinal, c.creadoEn
-      ORDER BY c.horaInicio DESC
-      LIMIT 40
+      ORDER BY c.horaInicio DESC, c.id DESC
+      LIMIT 40 OFFSET ?
     `;
-    const [rows] = await this.pool.query(query, [clienteId]);
+    const [rows] = await this.pool.query(query, [clienteId, offset]);
     return rows;
+  }
+
+  async getDetalleByCliente(citaId, clienteId) {
+    const [rows] = await this.pool.query(
+      `SELECT c.id, DATE_FORMAT(c.fecha, '%Y-%m-%d') AS fecha,
+              DATE_FORMAT(c.horaInicio, '%Y-%m-%dT%H:%i:%s') AS horaInicio,
+              DATE_FORMAT(c.horaFin, '%Y-%m-%dT%H:%i:%s') AS horaFin,
+              c.estado, c.precioFinal, c.mp_status AS paymentStatus,
+              c.mp_payment_id AS paymentId,
+              CONCAT_WS(' ', uc.nombre, uc.apellidoPaterno, uc.apellidoMaterno) AS clienteNombre,
+              CONCAT_WS(' ', ue.nombre, ue.apellidoPaterno, ue.apellidoMaterno) AS empleadaNombre,
+              p.monto AS montoPagado, p.moneda, p.estado AS estadoPagoVerificado,
+              DATE_FORMAT(p.fechaAprobacion, '%Y-%m-%dT%H:%i:%s') AS fechaAprobacion
+         FROM cita c
+         INNER JOIN cliente cl ON cl.id = c.clienteId
+         INNER JOIN usuario uc ON uc.id = cl.usuarioId
+         INNER JOIN empleada e ON e.id = c.empleadaId
+         INNER JOIN usuario ue ON ue.id = e.usuarioId
+         LEFT JOIN pago_mercado_pago p ON p.citaId = c.id AND p.paymentId = c.mp_payment_id
+        WHERE c.id = ? AND c.clienteId = ? LIMIT 1`,
+      [citaId, clienteId]
+    );
+    if (!rows[0]) return null;
+    const [servicios] = await this.pool.query(
+      `SELECT s.id, s.nombre, cs.precio, cs.duracion AS duracionMinutos
+         FROM citaservicio cs INNER JOIN servicio s ON s.id = cs.servicioId
+        WHERE cs.citaId = ? ORDER BY cs.id`, [citaId]
+    );
+    return { ...rows[0], servicios };
   }
 
   async getOcupacion(fecha, empleadaId) {

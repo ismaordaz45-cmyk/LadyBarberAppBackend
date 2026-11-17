@@ -18,5 +18,6 @@ router.post('/', (req, res, next) => citasController.reservarCita(req, res, next
 router.get('/ocupacion', (req, res, next) => citasController.getOcupacion(req, res, next));
 router.post('/:id/pago/preferencia', (req, res, next) => citasPagoController.crearPreferencia(req, res, next));
 router.get('/:id/pago/estado', (req, res, next) => citasPagoController.obtenerEstado(req, res, next));
+router.get('/:id', (req, res, next) => citasController.getDetalle(req, res, next));
 
 export default router;
