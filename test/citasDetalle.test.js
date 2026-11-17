@@ -45,13 +45,32 @@ describe('Detalle de cita y comprobante', () => {
     const calls = [];
     const repository = new CitasRepository({ query: async (sql, args) => {
       calls.push({ sql, args });
-      return calls.length === 1 ? [[evidencia]] : [[{ id: 1, nombre: 'Corte', precio: 120, duracionMinutos: 30 }]];
+      if (calls.length === 1) return [[{ id, precioFinal: '120.00', paymentId: 'pago-test' }]];
+      if (calls.length === 2) return [[{ montoPagado: '60.00', moneda: 'MXN', estadoPagoVerificado: 'approved' }]];
+      return [[{ id: 1, nombre: 'Corte', precio: 120, duracionMinutos: 30 }]];
     } });
     const detalle = await repository.getDetalleByCliente(id, 7);
     assert.deepEqual(calls[0].args, [id, 7]);
     assert.match(calls[0].sql, /c.id = \? AND c.clienteId = \?/);
-    assert.match(calls[1].sql, /cs.precio, cs.duracion/);
+    assert.deepEqual(calls[1].args, ['pago-test', id]);
+    assert.match(calls[2].sql, /cs.precio, cs.duracion/);
     assert.equal(detalle.servicios[0].precio, 120);
+    assert.equal(detalle.montoPagado, '60.00');
+  });
+
+  it('conserva el detalle sin acreditar anticipo si falta el ID del pago o su evidencia coincidente', async () => {
+    for (const paymentId of [null, 'payment-sin-evidencia']) {
+      const repository = new CitasRepository({ query: async (sql) => {
+        if (sql.includes('FROM cita c')) return [[{ id, precioFinal: 120, estado: 'CONFIRMADA', paymentId, paymentStatus: 'approved' }]];
+        return [[]];
+      } });
+      const service = new CitasService(repository);
+      const result = await service.obtenerDetalleCliente(id, 7);
+      assert.equal(result.id, id);
+      assert.equal(result.comprobanteDisponible, false);
+      assert.equal(result.anticipoPagado, null);
+      assert.equal(result.saldoPendiente, null);
+    }
   });
 
   it('no consulta líneas cuando la cita no pertenece al cliente', async () => {
