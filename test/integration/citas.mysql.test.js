@@ -50,6 +50,7 @@ before(async () => {
     process.env.JWT_SECRET,
     { expiresIn: '1h' }
   );
+
 });
 
 after(async () => {
@@ -353,5 +354,49 @@ describe('Integración real de catálogos y citas con MySQL', () => {
       () => repository.applyVerifiedPayment({ ...payment, citaId: secondCitaId }),
       (error) => error.statusCode === 409
     );
+  });
+  it('recupera detalle y evidencia de anticipo con intercalaciones distintas entre cita y pagos', async () => {
+    // Solo en la base efímera: MySQL no tiene uca1400 de MariaDB. Dos
+    // collations utf8mb4 distintas reproducen el mismo error de comparación.
+    await pool.query(`ALTER TABLE pago_mercado_pago
+      MODIFY citaId VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+      MODIFY paymentId VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL`);
+    try {
+      const citaId = '00000000-0000-4000-8000-000000000030';
+      await pool.query(`INSERT INTO cita
+        (id, clienteId, empleadaId, fecha, horaInicio, horaFin, estado, precioFinal)
+        VALUES (?, 1, 1, ?, ?, ?, 'APARTADA', 120)`,
+      [citaId, `${targetDate} 00:00:00`, `${targetDate} 17:00:00`, `${targetDate} 17:45:00`]);
+      await pool.query('INSERT INTO citaservicio (citaId, servicioId, precio, duracion) VALUES (?, 1, 120, 45)', [citaId]);
+      const repository = new CitasPagoRepository(pool);
+      await repository.applyVerifiedPayment({
+        citaId, preferenceId: 'pref-collation', id: 'payment-collation', amount: 60,
+        currency: 'MXN', status: 'approved', statusDetail: 'accredited',
+        paymentMethod: 'visa', paymentType: 'credit_card', approvedAt: new Date(), rawData: {},
+      });
+      // Control: la comparación columna-columna original sí reproduce el fallo.
+      await assert.rejects(pool.query(`SELECT c.id FROM cita c
+        LEFT JOIN pago_mercado_pago p ON p.citaId = c.id AND p.paymentId = c.mp_payment_id
+        WHERE c.id = ?`, [citaId]), e => e.code === 'ER_CANT_AGGREGATE_2COLLATIONS');
+      const detalle = await request(app).get(`/api/citas/${citaId}`).set('Authorization', `Bearer ${tokenCliente}`);
+      assert.equal(detalle.status, 200);
+      assert.equal(detalle.body.comprobanteDisponible, true);
+      assert.equal(detalle.body.clienteNombre, 'Cliente CI');
+      assert.equal(detalle.body.anticipoPagado, 60);
+      assert.equal(detalle.body.saldoPendiente, 60);
+      assert.equal(detalle.body.servicios[0].duracionMinutos, 45);
+      assert.equal(detalle.body.paymentId, 'payment-collation');
+      await pool.query('UPDATE pago_mercado_pago SET citaId = ? WHERE paymentId = ?',
+        ['00000000-0000-4000-8000-000000000099', 'payment-collation']);
+      const noCoincidente = await request(app).get(`/api/citas/${citaId}`).set('Authorization', `Bearer ${tokenCliente}`);
+      assert.equal(noCoincidente.status, 200);
+      assert.equal(noCoincidente.body.comprobanteDisponible, false);
+      assert.equal(noCoincidente.body.anticipoPagado, null);
+      assert.equal(noCoincidente.body.saldoPendiente, null);
+    } finally {
+      await pool.query(`ALTER TABLE pago_mercado_pago
+        MODIFY citaId VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+        MODIFY paymentId VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL`);
+    }
   });
 });
