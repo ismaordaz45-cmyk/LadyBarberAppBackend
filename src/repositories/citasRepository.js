@@ -45,25 +45,35 @@ export class CitasRepository {
               c.estado, c.precioFinal, c.mp_status AS paymentStatus,
               c.mp_payment_id AS paymentId,
               CONCAT_WS(' ', uc.nombre, uc.apellidoPaterno, uc.apellidoMaterno) AS clienteNombre,
-              CONCAT_WS(' ', ue.nombre, ue.apellidoPaterno, ue.apellidoMaterno) AS empleadaNombre,
-              p.monto AS montoPagado, p.moneda, p.estado AS estadoPagoVerificado,
-              DATE_FORMAT(p.fechaAprobacion, '%Y-%m-%dT%H:%i:%s') AS fechaAprobacion
+              CONCAT_WS(' ', ue.nombre, ue.apellidoPaterno, ue.apellidoMaterno) AS empleadaNombre
          FROM cita c
          INNER JOIN cliente cl ON cl.id = c.clienteId
          INNER JOIN usuario uc ON uc.id = cl.usuarioId
          INNER JOIN empleada e ON e.id = c.empleadaId
          INNER JOIN usuario ue ON ue.id = e.usuarioId
-         LEFT JOIN pago_mercado_pago p ON p.citaId = c.id AND p.paymentId = c.mp_payment_id
         WHERE c.id = ? AND c.clienteId = ? LIMIT 1`,
       [citaId, clienteId]
     );
     if (!rows[0]) return null;
+    // Las tablas compartidas pueden tener collations distintas. Comparar cada
+    // columna con un parámetro evita el JOIN texto-texto sin alterar el esquema.
+    // Usar ambos IDs conserva el vínculo entre la cita autorizada y su pago.
+    let pago = { montoPagado: null, moneda: null, estadoPagoVerificado: null, fechaAprobacion: null };
+    if (rows[0].paymentId) {
+      const [pagos] = await this.pool.query(
+        `SELECT monto AS montoPagado, moneda, estado AS estadoPagoVerificado,
+                DATE_FORMAT(fechaAprobacion, '%Y-%m-%dT%H:%i:%s') AS fechaAprobacion
+           FROM pago_mercado_pago WHERE paymentId = ? AND citaId = ? LIMIT 1`,
+        [rows[0].paymentId, rows[0].id]
+      );
+      if (pagos[0]) pago = pagos[0];
+    }
     const [servicios] = await this.pool.query(
       `SELECT s.id, s.nombre, cs.precio, cs.duracion AS duracionMinutos
          FROM citaservicio cs INNER JOIN servicio s ON s.id = cs.servicioId
         WHERE cs.citaId = ? ORDER BY cs.id`, [citaId]
     );
-    return { ...rows[0], servicios };
+    return { ...rows[0], ...pago, servicios };
   }
 
   async getOcupacion(fecha, empleadaId) {
