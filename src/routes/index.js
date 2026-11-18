@@ -4,8 +4,15 @@ import authController from '../controllers/authController.js';
 import catalogoController from '../controllers/catalogoController.js';
 import mercadoPagoRoutes from './mercadoPagoRoutes.js';
 import negocioController from '../controllers/negocioController.js';
+import pedidosRoutes from './pedidosRoutes.js';
+import pedidosController from '../controllers/pedidosController.js';
+import comprasRoutes from './comprasRoutes.js';
 
 const router = Router();
+router.use('/compras', comprasRoutes);
+router.use('/pedidos', pedidosRoutes);
+router.post('/pagos/productos/mercadopago/webhook', pedidosController.webhook);
+router.get('/pagos/productos/mercadopago/retorno/:estado', pedidosController.retorno);
 router.get('/perfil-empresa', negocioController.obtenerPerfilPublico);
 
 /**
