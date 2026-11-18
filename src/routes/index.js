@@ -3,8 +3,10 @@ import authRoutes from './authRoutes.js';
 import authController from '../controllers/authController.js';
 import catalogoController from '../controllers/catalogoController.js';
 import mercadoPagoRoutes from './mercadoPagoRoutes.js';
+import negocioController from '../controllers/negocioController.js';
 
 const router = Router();
+router.get('/perfil-empresa', negocioController.obtenerPerfilPublico);
 
 /**
  * Endpoint de comprobación de estado de la API (Health check)
