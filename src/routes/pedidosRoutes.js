@@ -1,0 +1,11 @@
+import { Router } from 'express';
+import controller from '../controllers/pedidosController.js';
+import { verificarToken, verificarCuentaActiva, verificarRol } from '../middlewares/authMiddleware.js';
+const router = Router();
+router.use(verificarToken, verificarCuentaActiva, verificarRol('CLIENTE'));
+router.post('/', controller.crear);
+router.get('/', controller.listar);
+router.get('/:id', controller.obtener);
+router.post('/:id/preferencia', controller.preferencia);
+router.post('/:id/sincronizar', controller.sincronizar);
+export default router;
