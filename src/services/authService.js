@@ -93,6 +93,9 @@ class AuthService {
    * @returns {Promise<{message: string, userId: number}>}
    */
   async registro(datos) {
+    if (datos?.rol !== undefined && datos.rol !== 'CLIENTE') {
+      throw Object.assign(new Error('El registro público solo permite cuentas de cliente'), { statusCode: 403 });
+    }
     const {
       nombre,
       apellidoPaterno,
