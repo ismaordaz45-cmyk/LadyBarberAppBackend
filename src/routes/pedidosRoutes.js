@@ -8,4 +8,5 @@ router.get('/', controller.listar);
 router.get('/:id', controller.obtener);
 router.post('/:id/preferencia', controller.preferencia);
 router.post('/:id/sincronizar', controller.sincronizar);
+router.post('/:id/cancelar', controller.cancelar);
 export default router;
