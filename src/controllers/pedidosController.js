@@ -7,6 +7,7 @@ export class PedidosController {
   listar = async (req, res, next) => { try { res.json(await this.service.listar(req.user.id, req.query.offset ?? 0)); } catch (e) { next(e); } };
   preferencia = async (req, res, next) => { try { res.json(await this.service.preferencia(req.params.id, req.user.id)); } catch (e) { next(e); } };
   sincronizar = async (req, res, next) => { try { res.json(await this.service.sincronizar(req.params.id, req.user.id)); } catch (e) { next(e); } };
+  cancelar = async (req, res, next) => { try { res.json(await this.service.cancelar(req.params.id, req.user.id)); } catch (e) { next(e); } };
   webhook = async (req, res, next) => {
     try {
       const queryId = req.query['data.id'] || req.query.id;

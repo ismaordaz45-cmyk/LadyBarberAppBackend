@@ -8,6 +8,10 @@ export class ProductosMercadoPagoGateway {
       headers: { 'X-Idempotency-Key': key }, signal: AbortSignal.timeout(15000) });
   }
   obtenerPreferencia(id) { return this.base.request(`/checkout/preferences/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(15000) }); }
+  expirarPreferencia(id) {
+    return this.base.request(`/checkout/preferences/${encodeURIComponent(id)}`, { method: 'PUT',
+      body: JSON.stringify({ expires: true, expiration_date_from: new Date(Date.now() - 86400000).toISOString(), expiration_date_to: new Date(Date.now() - 1000).toISOString() }), signal: AbortSignal.timeout(15000) });
+  }
   obtenerPago(id) { return this.base.request(`/v1/payments/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(15000) }); }
   buscarPagos(referencia) {
     return this.base.request(`/v1/payments/search?${new URLSearchParams({ external_reference: referencia, sort: 'date_created', criteria: 'desc', limit: '30' })}`, { signal: AbortSignal.timeout(15000) });

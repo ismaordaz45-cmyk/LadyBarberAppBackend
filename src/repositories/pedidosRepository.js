@@ -90,6 +90,10 @@ export class PedidosRepository {
       const pedido = await this.obtener(id, null, c, true);
       if (!pedido) throw fail(404, 'Pedido no encontrado');
       const evidencia = validarPagoProducto(pago, pedido, pago.id);
+      // Una aprobación que ya estaba en tránsito sigue siendo un pago real.
+      const canceladoPorCliente = pedido.estado === 'cancelado' && pedido.paymentStatus === 'mobile_cancelled';
+      const pagoEnTransito = ['approved','pending','in_process','authorized'].includes(evidencia.estado);
+      if (canceladoPorCliente && !pagoEnTransito && !['refunded','charged_back'].includes(evidencia.estado)) return pedido;
       // Un evento atrasado nunca degrada una compra ya confirmada.
       if (pedido.paymentId && String(pedido.paymentId) !== evidencia.paymentId) {
         if (['approved','refunded','charged_back','partially_refunded'].includes(pedido.paymentStatus)) {
@@ -108,8 +112,8 @@ export class PedidosRepository {
       if (['refunded','charged_back','partially_refunded'].includes(pedido.paymentStatus)) return pedido;
       const devuelto = ['refunded','charged_back','partially_refunded'].includes(estadoPago);
       if (pedido.paymentStatus === 'approved' && !evidencia.aprobado && !devuelto) return pedido;
-      await c.query("UPDATE pedidos SET mp_payment_id=?,mp_status=?,estado=IF(?,'cancelado',estado) WHERE id=?", [evidencia.paymentId, estadoPago, devuelto, id]);
-      if (!evidencia.aprobado || devolucion || pedido.estado === 'cancelado') return this.obtener(id, null, c);
+      await c.query("UPDATE pedidos SET mp_payment_id=?,mp_status=?,estado=IF(?,'cancelado',IF(?,'pendiente',estado)) WHERE id=?", [evidencia.paymentId, estadoPago, devuelto, canceladoPorCliente && pagoEnTransito, id]);
+      if (!evidencia.aprobado || devolucion || (pedido.estado === 'cancelado' && !canceladoPorCliente)) return this.obtener(id, null, c);
       // Mismo orden de bloqueo usuario → insumos que al crear, incluido el FK de ventas_online.
       const [usuarios] = await c.query('SELECT nombre,apellidoPaterno,apellidoMaterno,correo,telefono FROM usuario WHERE id=? FOR UPDATE', [pedido.usuarioId]);
       const comprador = usuarios[0];
@@ -129,6 +133,16 @@ export class PedidosRepository {
         [pedido.usuarioId, [comprador.nombre, comprador.apellidoPaterno, comprador.apellidoMaterno].filter(Boolean).join(' '), comprador.correo, comprador.telefono, pedido.total, JSON.stringify(detalle)]);
       await c.query("UPDATE pedidos SET estado='pagado' WHERE id=?", [id]);
       return this.obtener(id, null, c);
+    });
+  }
+  async cancelarSinPago(id, usuarioId) {
+    return this.transaccion(async c => {
+      const pedido = await this.obtener(id, usuarioId, c, true);
+      if (!pedido) throw fail(404, 'Pedido no encontrado');
+      if (pedido.estado === 'cancelado' && pedido.paymentStatus === 'mobile_cancelled') return pedido;
+      if (pedido.estado !== 'pendiente' || !['mobile_created','mobile_checkout','rejected','cancelled'].includes(pedido.paymentStatus)) throw fail(409, 'El estado del pago cambió. Consulta el pedido antes de cancelar');
+      await c.query("UPDATE pedidos SET estado='cancelado',mp_status='mobile_cancelled' WHERE id=?", [id]);
+      return this.obtener(id, usuarioId, c);
     });
   }
 }
