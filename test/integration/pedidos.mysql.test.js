@@ -133,6 +133,46 @@ it('un evento pendiente atrasado y un reembolso no vuelven a descontar existenci
   assert.equal((await repository.obtener(pedido.id, comprador)).estado, 'cancelado');
   await repository.aplicarPago(pedido.id, aprobado); assert.equal(await contarVentas(), ventas);
 });
+it('cancelación propia e idempotente conserva artículos, stock y ventas; otro comprador recibe 404', async () => {
+  await pool.query("INSERT INTO insumo (id,nombre,stockActual,stockMinimo,precioUnitario,estaActivo) VALUES (3,'Producto cancelación',100,5,10,1)");
+  const pedido = await crear(1, comprador, 3);
+  const ajeno = jwt.sign({ id: 22, rol: 'CLIENTE' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+  assert.equal((await request(app).post(`/api/pedidos/${pedido.id}/cancelar`).set('Authorization', `Bearer ${ajeno}`)).status, 404);
+  const ventasAntes = await contarVentas();
+  const response = await pedir(`/${pedido.id}/cancelar`, {});
+  assert.equal(response.status, 200); assert.equal(response.body.estado, 'cancelado'); assert.equal(response.body.items[0].cantidad, 1);
+  assert.equal((await pedir(`/${pedido.id}/cancelar`, {})).status, 200);
+  assert.equal((await pool.query('SELECT stockActual FROM insumo WHERE id=3'))[0][0].stockActual, 100);
+  assert.equal(await contarVentas(), ventasAntes);
+});
+it('una aprobación en tránsito después de cancelar confirma la compra sin perder el pago ni duplicar stock', async () => {
+  const pedido = await crear(2, comprador, 3); const ventasAntes = await contarVentas();
+  await service.cancelar(pedido.id, comprador);
+  const evidencia = pago(pedido, 300001);
+  await repository.aplicarPago(pedido.id, evidencia); await repository.aplicarPago(pedido.id, evidencia);
+  const actual = await repository.obtener(pedido.id, comprador);
+  assert.equal(actual.estado, 'pagado'); assert.equal(actual.paymentStatus, 'approved');
+  assert.equal((await pool.query('SELECT stockActual FROM insumo WHERE id=3'))[0][0].stockActual, 98);
+  assert.equal(await contarVentas(), ventasAntes + 1);
+  await assert.rejects(() => service.cancelar(pedido.id, comprador), e => e.statusCode === 409);
+});
+it('serializa la cancelación y la aprobación simultáneas y conserva exactamente una venta', async () => {
+  const pedido = await crear(3, comprador, 3); const ventasAntes = await contarVentas();
+  const result = await Promise.allSettled([repository.cancelarSinPago(pedido.id, comprador), repository.aplicarPago(pedido.id, pago(pedido,300002))]);
+  assert.equal(result[1].status, 'fulfilled');
+  assert.equal((await repository.obtener(pedido.id, comprador)).estado, 'pagado');
+  assert.equal(await contarVentas(), ventasAntes + 1);
+  assert.equal((await pool.query('SELECT stockActual FROM insumo WHERE id=3'))[0][0].stockActual, 95);
+});
+it('conserva la evidencia de un pago pendiente en tránsito tras cancelar, sin descontar stock', async () => {
+  const pedido = await crear(4, comprador, 3); const ventasAntes = await contarVentas();
+  await service.cancelar(pedido.id, comprador);
+  await repository.aplicarPago(pedido.id, pago(pedido,300003,{ status: 'pending' }));
+  const actual = await repository.obtener(pedido.id, comprador);
+  assert.equal(actual.estado, 'pendiente'); assert.equal(actual.paymentStatus, 'pending'); assert.equal(actual.paymentId, '300003');
+  assert.equal(await contarVentas(), ventasAntes);
+  assert.equal((await pool.query('SELECT stockActual FROM insumo WHERE id=3'))[0][0].stockActual, 95);
+});
 it('rechaza pago con falta de stock antes de checkout y controla paginación y pedidos inexistentes', async () => {
   const invalidos = await pedir('', { items: [{ insumoId: 2, cantidad: 100 }] }); assert.equal(invalidos.status, 409);
   const lista = await request(app).get('/api/pedidos?offset=0').set('Authorization', `Bearer ${token}`); assert.equal(lista.status, 200); assert.ok(lista.body.length <= 6);
