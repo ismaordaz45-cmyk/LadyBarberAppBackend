@@ -34,6 +34,40 @@ export class PedidosService {
     if (!/^\d+$/.test(String(offset)) || Number(offset) > 1000000) throw fail(400, 'Paginación inválida');
     return this.repo.listar(usuarioId, Number(offset));
   }
+  async revisarAntesDeCancelar(pedido) {
+    if (!pedido.preferenceId && pedido.paymentStatus === 'mobile_created' && !pedido.paymentId) return;
+    const busqueda = await this.mp.buscarPagos(referenciaPedidoMovil(pedido.id));
+    if (!Array.isArray(busqueda?.results) || busqueda.results.length >= 30) throw fail(409, 'No se pudo verificar todos los pagos del pedido. Consulta su estado antes de cancelar');
+    const ids = new Set([pedido.paymentId, ...busqueda.results.filter(p => p.external_reference === referenciaPedidoMovil(pedido.id)).map(p => p.id)].filter(Boolean).map(String));
+    for (const paymentId of ids) {
+      const pago = await this.mp.obtenerPago(paymentId);
+      validarPagoProducto(pago, pedido, paymentId);
+      if (!['rejected','cancelled'].includes(pago.status) || Number(pago.transaction_amount_refunded || 0) > 0) {
+        await this.repo.aplicarPago(pedido.id, pago);
+        throw fail(409, 'El pedido tiene un pago aprobado, pendiente o en revisión. Consulta su estado; no se canceló ni se solicitó un reembolso');
+      }
+    }
+  }
+  async cancelar(id, usuarioId) {
+    id = idValido(id);
+    return this.repo.conBloqueoPago(id, async c => {
+      const pedido = await this.repo.obtener(id, usuarioId, c);
+      if (!pedido) throw fail(404, 'Pedido no encontrado');
+      if (pedido.estado === 'cancelado' && pedido.paymentStatus === 'mobile_cancelled') return presentarPedido(pedido);
+      if (pedido.estado !== 'pendiente' || !['mobile_created','mobile_checkout','rejected','cancelled'].includes(pedido.paymentStatus)) throw fail(409, 'Este pedido no se puede cancelar. Consulta el estado de su pago');
+      if (!pedido.preferenceId && (pedido.paymentStatus !== 'mobile_created' || pedido.paymentId)) throw fail(409, 'El pedido no admite cancelación desde la app');
+      if (pedido.preferenceId) {
+        const preferencia = await this.mp.obtenerPreferencia(pedido.preferenceId);
+        if (preferencia.external_reference !== referenciaPedidoMovil(id)) throw fail(409, 'Este pedido se inició fuera de la app. Consulta al salón');
+        await this.revisarAntesDeCancelar(pedido);
+        const expirada = await this.mp.expirarPreferencia(pedido.preferenceId);
+        if (String(expirada?.id) !== String(pedido.preferenceId) || expirada?.external_reference !== referenciaPedidoMovil(id)
+          || expirada.expires !== true || !Number.isFinite(Date.parse(expirada.expiration_date_to)) || Date.parse(expirada.expiration_date_to) > Date.now()) throw fail(502, 'No se pudo cerrar el enlace de Mercado Pago. El pedido se conserva para consultar su estado');
+        await this.revisarAntesDeCancelar(pedido);
+      }
+      return presentarPedido(await this.repo.cancelarSinPago(id, usuarioId));
+    });
+  }
   async preferencia(id, usuarioId) {
     id = idValido(id);
     const { publicBackendUrl } = this.config();
